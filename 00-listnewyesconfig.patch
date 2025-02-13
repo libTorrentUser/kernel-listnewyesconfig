@@ -1,0 +1,117 @@
+# when building a new kernel, most of the time we are only interested in new 
+# things that the kernel devs decided to enable by default. Unfortunately the 
+# makefile offers no such option. The best we officialy get is 
+# "make listnewconfig", which will list every single new configuration added to 
+# the kernel based on the old config you provide. That means you will have to 
+# spend hours answering "no" to new drivers that you will never use.
+#
+# In order to avoid that, this patch adds a new mode called
+#
+# listnewyesconfig
+#
+# As the name implies, only new configurations that would default to "yes"
+# will be shown. Then you can decided if you want to add them or not, 
+# without having to worry about missing an important config because you were
+# pressing RETURN like crazy trying to say "no" to a bunch of new drivers
+# will won't ever need
+--- old/scripts/kconfig/Makefile
++++ new/scripts/kconfig/Makefile
+@@ -77,7 +77,7 @@
+ #  deprecated for external use
+ simple-targets := oldconfig allnoconfig allyesconfig allmodconfig \
+ 	alldefconfig randconfig listnewconfig olddefconfig syncconfig \
+-	helpnewconfig yes2modconfig mod2yesconfig mod2noconfig
++	helpnewconfig yes2modconfig mod2yesconfig mod2noconfig listnewyesconfig
+ 
+ PHONY += $(simple-targets)
+ 
+@@ -147,6 +147,7 @@
+ 	@echo  '  mod2yesconfig	  - Change answers from mod to yes if possible'
+ 	@echo  '  mod2noconfig	  - Change answers from mod to no if possible'
+ 	@echo  '  listnewconfig   - List new options'
++	@echo  '  listnewyesconfig - List new options that default to yes.'
+ 	@echo  '  helpnewconfig   - List new options and help text'
+ 	@echo  '  olddefconfig	  - Same as oldconfig but sets new symbols to their'
+ 	@echo  '                    default value without prompting'
+--- old/scripts/kconfig/conf.c
++++ new/scripts/kconfig/conf.c
+@@ -32,6 +32,7 @@
+ 	defconfig,
+ 	savedefconfig,
+ 	listnewconfig,
++	listnewyesconfig,
+ 	helpnewconfig,
+ 	olddefconfig,
+ 	yes2modconfig,
+@@ -382,8 +383,17 @@
+ 		if (oldval != yes && sym_tristate_within_range(sym, yes))
+ 			printf("/y");
+ 		printf("/?] ");
+-		if (!conf_askvalue(sym, sym_get_string_value(sym)))
+-			return 0;
++		if (oldval == no)
++		{
++			line[0] = 'n';
++			line[1] = '\0';
++			printf("\n");
++		}
++		else
++		{
++			if (!conf_askvalue(sym, sym_get_string_value(sym)))
++				return 0;
++		}
+ 		strip(line);
+ 
+ 		switch (line[0]) {
+@@ -583,6 +593,7 @@
+ 	if (sym && !sym_has_value(sym) && sym_is_changeable(sym)) {
+ 		switch (input_mode) {
+ 		case listnewconfig:
++		case listnewyesconfig:
+ 			if (sym->name)
+ 				print_symbol_for_listconfig(sym);
+ 			break;
+@@ -618,6 +629,7 @@
+ 	{"alldefconfig",  no_argument,       &input_mode_opt, alldefconfig},
+ 	{"randconfig",    no_argument,       &input_mode_opt, randconfig},
+ 	{"listnewconfig", no_argument,       &input_mode_opt, listnewconfig},
++	{"listnewyesconfig", no_argument,       &input_mode_opt, listnewyesconfig},
+ 	{"helpnewconfig", no_argument,       &input_mode_opt, helpnewconfig},
+ 	{"olddefconfig",  no_argument,       &input_mode_opt, olddefconfig},
+ 	{"yes2modconfig", no_argument,       &input_mode_opt, yes2modconfig},
+@@ -636,6 +648,7 @@
+ 	printf("\n");
+ 	printf("Mode options:\n");
+ 	printf("  --listnewconfig         List new options\n");
++	printf("  --listnewyesconfig      List new options that default to yes.\n");
+ 	printf("  --helpnewconfig         List new options and help text\n");
+ 	printf("  --oldaskconfig          Start a new configuration using a line-oriented program\n");
+ 	printf("  --oldconfig             Update a configuration using a provided .config as base\n");
+@@ -726,6 +739,7 @@
+ 	case oldaskconfig:
+ 	case oldconfig:
+ 	case listnewconfig:
++	case listnewyesconfig:
+ 	case helpnewconfig:
+ 	case olddefconfig:
+ 	case yes2modconfig:
+@@ -822,6 +836,7 @@
+ 		/* fall through */
+ 	case oldconfig:
+ 	case listnewconfig:
++	case listnewyesconfig:
+ 	case helpnewconfig:
+ 	case syncconfig:
+ 		/* Update until a loop caused no more changes */
+@@ -844,7 +859,10 @@
+ 				defconfig_file);
+ 			return 1;
+ 		}
+-	} else if (input_mode != listnewconfig && input_mode != helpnewconfig) {
++	} else if (
++		input_mode != listnewconfig && 
++		input_mode != listnewyesconfig && 
++		input_mode != helpnewconfig) {
+ 		if (!no_conf_write && conf_write(NULL)) {
+ 			fprintf(stderr, "\n*** Error during writing of the configuration.\n\n");
+ 			exit(1);
